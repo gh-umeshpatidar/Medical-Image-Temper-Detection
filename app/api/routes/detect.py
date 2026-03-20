@@ -1,10 +1,11 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, Request, UploadFile, File, HTTPException
+from fastapi.templating import Jinja2Templates
 from app.services.inference import run_inference_image, run_inference_dicom
 from app.utils.file_handler import save_temp_file
 from fastapi import Depends
-from app.utils.security import verify_api_key
 
 router = APIRouter()
+templates = Jinja2Templates(directory="app/templates")
 
 ALLOWED_IMAGE_TYPES = [
     "image/png",
@@ -13,8 +14,12 @@ ALLOWED_IMAGE_TYPES = [
     "application/octet-stream"
 ]
 
+@router.get("/detect-medical-tamper")
+async def detect_page(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
 @router.post("/detect-medical-tamper")
-async def detect_medical_tamper(file: UploadFile = File(...), api_key: str = Depends(verify_api_key)):
+async def detect_medical_tamper(file: UploadFile = File(...)):
     # Check file type
     if file.content_type not in ALLOWED_IMAGE_TYPES and not file.filename.lower().endswith(".dcm"):
         raise HTTPException(status_code=400, detail="Invalid image format")
