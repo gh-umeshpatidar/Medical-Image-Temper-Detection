@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Medical Image Tamper Detection</title>
+    <link rel="stylesheet" href="/static/index.css">
+</head>
+<body>
+
+    <header>
+        <h1>Medical Image <span>Tamper Detection</span></h1>
+        <p>Upload a medical image (PNG, JPG, JPEG, DICOM) to check for tampering.</p>
+    </header>
+
+    <div class="card">
+        <form id="upload-form" enctype="multipart/form-data" action="/detect-medical-tamper" method="post">
+
+            <!-- Upload Area -->
+            <div class="upload-area" id="upload-area">
+                <input
+                    type="file"
+                    id="image-input"
+                    name="file"
+                    accept=".png,.jpg,.jpeg,.dcm,image/png,image/jpeg,application/dicom"
+                    required
+                />
+                <span class="upload-icon">🩻</span>
+                <h3>Drag &amp; drop or <span>browse</span></h3>
+                <p>Supported formats: <span>PNG, JPG, JPEG, DCM</span></p>
+            </div>
+
+            <!-- Image Preview -->
+            <div id="preview-container">
+                <img id="preview-img" src="" alt="Preview" />
+                <p id="file-name"></p>
+            </div>
+
+            <!-- Loader -->
+            <div class="loader" id="loader"></div>
+
+            <!-- Submit -->
+            <button type="submit" class="btn-submit" id="submit-btn" disabled>
+                Analyse Image
+            </button>
+
+        </form>
+
+        <!-- Result -->
+        <div id="result-box">
+            <div class="result-label" id="result-label"></div>
+            <div class="result-confidence" id="result-confidence"></div>
+        </div>
+    </div>
+
+    <footer>&copy; 2026 Medical Image Tamper Detection</footer>
+
+    <script>
+        const input       = document.getElementById('image-input');
+        const uploadArea  = document.getElementById('upload-area');
+        const previewCont = document.getElementById('preview-container');
+        const previewImg  = document.getElementById('preview-img');
+        const fileName    = document.getElementById('file-name');
+        const submitBtn   = document.getElementById('submit-btn');
+        const form        = document.getElementById('upload-form');
+        const loader      = document.getElementById('loader');
+        const resultBox   = document.getElementById('result-box');
+        const resultLabel = document.getElementById('result-label');
+        const resultConf  = document.getElementById('result-confidence');
+
+        // Show preview when file selected
+        input.addEventListener('change', () => {
+            const file = input.files[0];
+            if (!file) return;
+
+            fileName.textContent = file.name;
+            submitBtn.disabled = false;
+            resultBox.style.display = 'none';
+
+            if (file.name.toLowerCase().endsWith('.dcm')) {
+                previewImg.src = '';
+                previewImg.alt = 'DICOM preview not available';
+                previewImg.style.display = 'none';
+            } else {
+                const reader = new FileReader();
+                reader.onload = e => {
+                    previewImg.src = e.target.result;
+                    previewImg.style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            }
+
+            previewCont.style.display = 'block';
+        });
+
+        // Drag-and-drop highlight
+        ['dragenter','dragover'].forEach(evt =>
+            uploadArea.addEventListener(evt, e => { e.preventDefault(); uploadArea.classList.add('dragover'); })
+        );
+        ['dragleave','drop'].forEach(evt =>
+            uploadArea.addEventListener(evt, () => uploadArea.classList.remove('dragover'))
+        );
+
+        // Form submit → call API
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            loader.style.display = 'block';
+            submitBtn.disabled = true;
+            resultBox.style.display = 'none';
+
+            try {
+                const formData = new FormData(form);
+                const response = await fetch('/api/detect-medical-tamper', {
+                    method: 'POST',
+                    body: formData,
+                    headers: { 'x-api-key': 'your-api-key-here' }
+                });
+
+                loader.style.display = 'none';
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Server error');
+                }
+
+                const data = await response.json();
+
+                resultBox.className = 'result-box ' + (data.tampered ? 'tampered' : 'authentic');
+                resultLabel.textContent = data.tampered ? '⚠️ Tampered Image Detected' : '✅ Image Appears Authentic';
+                resultConf.textContent  = `Confidence: ${(data.confidence * 100).toFixed(2)}%  |  Class: ${data.class}`;
+                resultBox.style.display = 'block';
+
+            } catch (err) {
+                loader.style.display = 'none';
+                resultBox.className = 'result-box tampered';
+                resultLabel.textContent = '❌ Error';
+                resultConf.textContent  = err.message;
+                resultBox.style.display = 'block';
+            }
+
+            submitBtn.disabled = false;
+        });
+    </script>
+
+</body>
+</html>
