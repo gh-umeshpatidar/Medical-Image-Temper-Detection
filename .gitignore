@@ -1,5 +1,8 @@
 # Ignore dataset
 DataSet/
+Upload/
+static/
+templates/
 
 # Ignore Python cache
 __pycache__/

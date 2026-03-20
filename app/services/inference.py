@@ -3,7 +3,7 @@ import torch
 from ml_models.image_model import image_model, device
 from ml_models.metadata_model import predict_metadata
 from app.services.preprocess import preprocess_image
-from app.services.dicom_metadata import extract_features
+from app.services.dicom_metadata import extract_metadata
 from app.services.metadata_rules import check_metadata_rules
 
 # For image
@@ -30,7 +30,7 @@ def run_inference_dicom(file_path):
     image_probabilities = torch.softmax(image_outputs, dim=1)
     # confidence, predicted = torch.max(image_probabilities, 1)
 
-    metadata_list = extract_features(file_path)
+    metadata_list = extract_metadata(file_path)
     # metadata_issue  = check_metadata_rules(metadata_list)
 
     metadata_ouput = predict_metadata(metadata_list)

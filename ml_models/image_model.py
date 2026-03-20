@@ -1,33 +1,38 @@
 import torch
 import timm
 import os
-from app.config.settings import MODEL_PATH
+
 # -----------------------------
-# Device
+# Config
 # -----------------------------
+MODEL_NAME = "efficientnet_b0"   # change dynamically if needed
+MODEL_PATH = f"ml_models/image_model_{MODEL_NAME}.pth"
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # -----------------------------
-# Create model architecture
+# Load checkpoint
 # -----------------------------
-image_model = timm.create_model("efficientnet_b4", pretrained=True)
-
-image_model.classifier = torch.nn.Linear(
-    image_model.classifier.in_features,
-    2
-)
-
-# -----------------------------
-# Load trained model
-# -----------------------------
-
 if not os.path.exists(MODEL_PATH):
-    raise FileNotFoundError("❌ tamper_model.pth not found. Train the model first.")
+    raise FileNotFoundError(f"❌ {MODEL_PATH} not found. Train the model first.")
 
-image_model.load_state_dict(
-    torch.load(MODEL_PATH, map_location=device)
+checkpoint = torch.load(MODEL_PATH, map_location=device)
+
+# -----------------------------
+# Create SAME model
+# -----------------------------
+image_model = timm.create_model(
+    checkpoint['model_name'],   # 🔥 VERY IMPORTANT
+    pretrained=False,
+    num_classes=2
 )
+
+# -----------------------------
+# Load weights
+# -----------------------------
+image_model.load_state_dict(checkpoint['model_state_dict'])
 
 image_model.to(device)
 image_model.eval()
 
+print(f"✅ {checkpoint['model_name']} loaded successfully")
