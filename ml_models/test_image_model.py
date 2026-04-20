@@ -2,18 +2,24 @@ import os
 import torch
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import cv2
-from sklearn.metrics import roc_curve
-from sklearn.metrics import precision_recall_curve
-from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score
+from sklearn.metrics import (roc_curve, precision_recall_curve,
+                             classification_report, confusion_matrix,
+                             roc_auc_score)
 from ml_models.LoadDataset import test_loader
 from ml_models.image_model import model
 from app.config.settings import OUTPUT_DIR, DEVICE
 from app.services.gradcam import gradcam
 
 all_preds, all_probs, all_labels, all_paths = [], [], [], []
+all_imgs_for_cam = []  # store tensors to avoid second loader pass
 
+# ---------------------------------------------------------------------------
+# Inference pass
+# ---------------------------------------------------------------------------
 with torch.no_grad():
     for imgs, labels, paths in test_loader:
         imgs = imgs.to(DEVICE)
@@ -26,87 +32,97 @@ with torch.no_grad():
         all_probs.extend(probs.cpu().numpy())
         all_labels.extend(labels.numpy())
         all_paths.extend(paths)
+        all_imgs_for_cam.append(imgs.cpu())
 
-
+# ---------------------------------------------------------------------------
+# CSV
+# ---------------------------------------------------------------------------
 df = pd.DataFrame({
-    "image": all_paths,
-    "true_label": all_labels,
-    "pred_label": all_preds,
+    "image":       all_paths,
+    "true_label":  all_labels,
+    "pred_label":  all_preds,
     "probability": all_probs
 })
-
 df.to_csv(f"{OUTPUT_DIR}/inference_results.csv", index=False)
 
-
+# ---------------------------------------------------------------------------
+# Confusion matrix
+# ---------------------------------------------------------------------------
 cm = confusion_matrix(all_labels, all_preds)
-
-plt.figure()
 fig, ax = plt.subplots()
 ax.imshow(cm, cmap="Blues")
-
 for i in range(cm.shape[0]):
     for j in range(cm.shape[1]):
         ax.text(j, i, str(cm[i, j]),
-                ha='center', va='center',
-                color='black', fontsize=12)
-
+                ha='center', va='center', color='black', fontsize=12)
 ax.set_xlabel("Predicted")
 ax.set_ylabel("Actual")
 ax.set_title("Confusion Matrix")
+fig.savefig(f"{OUTPUT_DIR}/confusion_matrix.png")
+plt.close(fig)
 
-plt.savefig(f"{OUTPUT_DIR}/confusion_matrix.png")
-plt.close()
-
-
+# ---------------------------------------------------------------------------
+# Classification report + ROC-AUC
+# ---------------------------------------------------------------------------
 print("\nClassification Report:")
-print(classification_report(all_labels, all_preds))
+print(classification_report(all_labels, all_preds,
+                            target_names=["Authentic", "Tampered"]))
 
-print("ROC-AUC:", roc_auc_score(all_labels, all_probs))
-
-fpr, tpr, thresholds = roc_curve(all_labels, all_probs)
 auc_score = roc_auc_score(all_labels, all_probs)
+print(f"ROC-AUC: {auc_score:.4f}")
 
-plt.figure()
-plt.plot(fpr, tpr, label=f"AUC = {auc_score:.4f}")
-plt.plot([0, 1], [0, 1], linestyle='--')
-plt.xlabel("False Positive Rate")
-plt.ylabel("True Positive Rate")
-plt.title("ROC Curve")
-plt.legend()
-plt.savefig(f"{OUTPUT_DIR}/roc_curve.png")
-plt.close()
+# ---------------------------------------------------------------------------
+# ROC curve
+# ---------------------------------------------------------------------------
+fpr, tpr, _ = roc_curve(all_labels, all_probs)
+fig, ax = plt.subplots()
+ax.plot(fpr, tpr, label=f"AUC = {auc_score:.4f}")
+ax.plot([0, 1], [0, 1], linestyle='--')
+ax.set_xlabel("False Positive Rate")
+ax.set_ylabel("True Positive Rate")
+ax.set_title("ROC Curve")
+ax.legend()
+fig.savefig(f"{OUTPUT_DIR}/roc_curve.png")
+plt.close(fig)
 
+# ---------------------------------------------------------------------------
+# Precision-Recall curve
+# ---------------------------------------------------------------------------
 precision, recall, _ = precision_recall_curve(all_labels, all_probs)
+fig, ax = plt.subplots()
+ax.plot(recall, precision)
+ax.set_xlabel("Recall")
+ax.set_ylabel("Precision")
+ax.set_title("Precision-Recall Curve")
+ax.grid()
+fig.savefig(f"{OUTPUT_DIR}/pr_curve.png")
+plt.close(fig)
 
-plt.figure()
-plt.plot(recall, precision)
-plt.xlabel("Recall")
-plt.ylabel("Precision")
-plt.title("Precision-Recall Curve")
-plt.grid()
-plt.savefig(f"{OUTPUT_DIR}/pr_curve.png")
-plt.close()
-
-
-for i, (imgs, labels, paths) in enumerate(test_loader):
-    imgs = imgs.to(DEVICE)
+# ---------------------------------------------------------------------------
+# GradCAM — only for tampered predictions, reuse stored tensors
+# ---------------------------------------------------------------------------
+for i, imgs in enumerate(all_imgs_for_cam):
+    imgs    = imgs.to(DEVICE)
     outputs = model(imgs)
-
-    preds = outputs.argmax(dim=1)
+    preds   = outputs.argmax(dim=1)
 
     for j in range(imgs.size(0)):
-        img = imgs[j].unsqueeze(0)
         pred_class = preds[j].item()
 
-        cam = gradcam.generate(img, pred_class)
+        if pred_class != 1:   # ✅ skip authentic images
+            continue
+
+        img_single = imgs[j].unsqueeze(0)
+        cam        = gradcam.generate(img_single, pred_class)
 
         original = imgs[j].cpu().permute(1, 2, 0).numpy()
-        original = (original - original.min()) / (original.max() - original.min())
+        original = (original - original.min()) / (original.max() - original.min() + 1e-8)
 
         heatmap = cv2.applyColorMap(np.uint8(255 * cam), cv2.COLORMAP_JET)
-        heatmap = heatmap / 255.0
+        heatmap = heatmap[:, :, ::-1] / 255.0   # BGR → RGB
 
-        overlay = heatmap * 0.4 + original
-
+        overlay   = np.clip(heatmap * 0.4 + original, 0, 1)
         save_path = os.path.join(OUTPUT_DIR, f"gradcam_{i}_{j}.png")
-        cv2.imwrite(save_path, np.uint8(255 * overlay))
+        cv2.imwrite(save_path, np.uint8(255 * overlay[:, :, ::-1]))  # RGB → BGR for cv2
+
+print("\n✅ Testing complete.")
