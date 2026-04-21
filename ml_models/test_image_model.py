@@ -15,14 +15,11 @@ from app.config.settings import OUTPUT_DIR, DEVICE
 from app.services.gradcam import gradcam
 
 all_preds, all_probs, all_labels, all_paths = [], [], [], []
-all_imgs_for_cam = []  # store tensors to avoid second loader pass
+all_imgs_for_cam = []   # store tensors for GradCAM — avoids second loader pass
 
-# ---------------------------------------------------------------------------
-# Inference pass
-# ---------------------------------------------------------------------------
 with torch.no_grad():
     for imgs, labels, paths in test_loader:
-        imgs = imgs.to(DEVICE)
+        imgs    = imgs.to(DEVICE)
         outputs = model(imgs)
 
         probs = torch.softmax(outputs, dim=1)[:, 1]
@@ -35,7 +32,7 @@ with torch.no_grad():
         all_imgs_for_cam.append(imgs.cpu())
 
 # ---------------------------------------------------------------------------
-# CSV
+# CSV results
 # ---------------------------------------------------------------------------
 df = pd.DataFrame({
     "image":       all_paths,
@@ -48,7 +45,7 @@ df.to_csv(f"{OUTPUT_DIR}/inference_results.csv", index=False)
 # ---------------------------------------------------------------------------
 # Confusion matrix
 # ---------------------------------------------------------------------------
-cm = confusion_matrix(all_labels, all_preds)
+cm  = confusion_matrix(all_labels, all_preds)
 fig, ax = plt.subplots()
 ax.imshow(cm, cmap="Blues")
 for i in range(cm.shape[0]):
@@ -62,18 +59,18 @@ fig.savefig(f"{OUTPUT_DIR}/confusion_matrix.png")
 plt.close(fig)
 
 # ---------------------------------------------------------------------------
-# Classification report + ROC-AUC
+# Classification report
 # ---------------------------------------------------------------------------
 print("\nClassification Report:")
 print(classification_report(all_labels, all_preds,
-                            target_names=["Authentic", "Tampered"]))
-
-auc_score = roc_auc_score(all_labels, all_probs)
-print(f"ROC-AUC: {auc_score:.4f}")
+                             target_names=["Authentic", "Tampered"]))
 
 # ---------------------------------------------------------------------------
 # ROC curve
 # ---------------------------------------------------------------------------
+auc_score = roc_auc_score(all_labels, all_probs)
+print("ROC-AUC:", auc_score)
+
 fpr, tpr, _ = roc_curve(all_labels, all_probs)
 fig, ax = plt.subplots()
 ax.plot(fpr, tpr, label=f"AUC = {auc_score:.4f}")
@@ -99,7 +96,12 @@ fig.savefig(f"{OUTPUT_DIR}/pr_curve.png")
 plt.close(fig)
 
 # ---------------------------------------------------------------------------
-# GradCAM — only for tampered predictions, reuse stored tensors
+# GradCAM — generated for ALL predictions (tampered + authentic)
+#
+# Changes vs original:
+#   * use_smoothing=True  → bilateral filter for cleaner heatmaps
+#   * Body mask (inside gradcam.generate) suppresses background activation
+#   * Filename now includes the predicted label for easy auditing
 # ---------------------------------------------------------------------------
 for i, imgs in enumerate(all_imgs_for_cam):
     imgs    = imgs.to(DEVICE)
@@ -107,13 +109,10 @@ for i, imgs in enumerate(all_imgs_for_cam):
     preds   = outputs.argmax(dim=1)
 
     for j in range(imgs.size(0)):
+        img_single = imgs[j].unsqueeze(0)
         pred_class = preds[j].item()
 
-        if pred_class != 1:   # ✅ skip authentic images
-            continue
-
-        img_single = imgs[j].unsqueeze(0)
-        cam        = gradcam.generate(img_single, pred_class)
+        cam = gradcam.generate(img_single, pred_class, use_smoothing=True)
 
         original = imgs[j].cpu().permute(1, 2, 0).numpy()
         original = (original - original.min()) / (original.max() - original.min() + 1e-8)
@@ -121,8 +120,8 @@ for i, imgs in enumerate(all_imgs_for_cam):
         heatmap = cv2.applyColorMap(np.uint8(255 * cam), cv2.COLORMAP_JET)
         heatmap = heatmap[:, :, ::-1] / 255.0   # BGR → RGB
 
-        overlay   = np.clip(heatmap * 0.4 + original, 0, 1)
-        save_path = os.path.join(OUTPUT_DIR, f"gradcam_{i}_{j}.png")
-        cv2.imwrite(save_path, np.uint8(255 * overlay[:, :, ::-1]))  # RGB → BGR for cv2
+        overlay = np.clip(heatmap * 0.4 + original, 0, 1)
 
-print("\n✅ Testing complete.")
+        label_tag = "tampered" if pred_class == 1 else "authentic"
+        save_path = os.path.join(OUTPUT_DIR, f"gradcam_{i}_{j}_{label_tag}.png")
+        cv2.imwrite(save_path, np.uint8(255 * overlay[:, :, ::-1]))   # RGB → BGR for cv2
