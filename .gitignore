@@ -10,7 +10,6 @@ __pycache__/
 *.md
 
 # Ignore model files
-*.pth
 *.pkl
 
 # Ignore numpy saved files
