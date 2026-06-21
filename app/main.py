@@ -53,3 +53,8 @@ app.include_router(detect_router, prefix="/api")
 def home(request: Request):
 
     return templates.TemplateResponse("Home.html", {"request": request})
+
+@app.get("/health")
+def health_check():
+
+    return {"status": "ok", "message": "Medical Tamper Detection routing work properly"}

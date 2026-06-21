@@ -24,4 +24,12 @@ def load_model():
     return m
 
 
-model = load_model()
+model = None
+
+def get_model():
+    global model
+
+    if model is None:
+        model = load_model()
+
+    return model

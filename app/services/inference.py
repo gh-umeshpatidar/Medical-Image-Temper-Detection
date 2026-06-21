@@ -6,11 +6,12 @@ import cv2
 
 import numpy as np
 
-from ml_models.image_model import model
+from app.services import gradcam
+from ml_models.image_model import get_model
 
 from app.services.preprocess import transform
 
-from app.services.gradcam import gradcam
+from app.services.gradcam import get_gradcam
 
 from app.config.settings import OUTPUT_DIR, DEVICE
 
@@ -26,7 +27,7 @@ def run_inference(file_path):
         img_tensor = transform(file_path).to(DEVICE)
 
         with torch.no_grad():
-
+            model = get_model()
             outputs = model(img_tensor)
 
             probabilities = torch.softmax(outputs, dim=1)
@@ -51,6 +52,7 @@ def run_inference(file_path):
 
         if pred_class == 1:
 
+            gradcam = get_gradcam()
             cam = gradcam.generate(img_tensor, pred_class, use_smoothing=True)
 
             heatmap = cv2.applyColorMap(np.uint8(255 * cam), cv2.COLORMAP_JET)

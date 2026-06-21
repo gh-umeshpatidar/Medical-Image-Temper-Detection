@@ -6,7 +6,7 @@ import numpy as np
 
 from app.config.settings import DEVICE
 
-from ml_models.image_model import model
+from ml_models.image_model import get_model
 
 
 class GradCAM:
@@ -119,5 +119,13 @@ class GradCAM:
 
         return cam
 
+_gradcam = None
 
-gradcam = GradCAM(model, model.layer4[-1])
+def get_gradcam():
+    global _gradcam
+
+    if _gradcam is None:
+        model = get_model()
+        _gradcam = GradCAM(model, model.layer4[-1])
+
+    return _gradcam
