@@ -2,7 +2,7 @@ import os
 
 import torch
 
-BASE_DIR = os.getcwd()
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 MODEL_PATH = os.path.join(BASE_DIR, "ml_models", "best_model.pth")
 
